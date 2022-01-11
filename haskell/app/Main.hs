@@ -13,14 +13,15 @@ x */* y = x * fromIntegral y
 
 normalizeToPlane (x, y) = ((3 // windowWidth */* x) - 2.0, (2 // windowHeigh */* y) - 1.0)
 
-points = [(x, y) | x <- [0 .. windowWidth - 1], y <- [0 .. windowHeigh - 1]]
+points = [(x, y) | y <- [0 .. windowHeigh - 1], x <- [0 .. windowWidth - 1]]
 
-calcColor :: Int -> (Float, Float, Float)
 calcColor iter
   | iter == iterations = (0, 0, 0)
-  | otherwise = (strenght, strenght, strenght)
+  | otherwise = (red, green, blue)
   where
-    strenght = iter // iterations
+    red = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.3
+    green = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.2
+    blue = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.1
 
 mandelInterations r i =
   length . takeWhile (\z -> magnitude z <= 2)
@@ -43,7 +44,7 @@ slice n xs = let (l, ls) = splitAt n xs in l : slice n ls
 
 showPPMLine l = unwords $ map showPPMPoint l
 
-mandelPPM = map showPPMLine $ transpose $ slice windowHeigh mandelPlane
+mandelPPM = map showPPMLine $ slice windowHeigh mandelPlane
 
 printLine [] = return ()
 printLine (x:xs) = do
@@ -54,7 +55,6 @@ printlPPMMandel = printLine mandelPPM
 
 printPPMHeader = do
   putStrLn "P3"
-  putStrLn "# feep.ppm"
   putStrLn $ show windowWidth ++ " " ++ show windowHeigh
   putStrLn "255"
 
