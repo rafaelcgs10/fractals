@@ -19,9 +19,10 @@ calcColor iter
   | iter == iterations = (0, 0, 0)
   | otherwise = (red, green, blue)
   where
-    red = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.3
-    green = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.2
-    blue = if fromIntegral iter > fromIntegral iterations * 0.8 then iter // iterations else iter // iterations ** 0.1
+    red = if fromIntegral iter > fromIntegral iterations * 0.8 then normalized else normalized ** 0.3
+    green = if fromIntegral iter > fromIntegral iterations * 0.8 then normalized else normalized ** 0.2
+    blue = if fromIntegral iter > fromIntegral iterations * 0.8 then normalized else normalized ** 0.1
+    normalized = iter // iterations
 
 mandelInterations r i =
   length . takeWhile (\z -> magnitude z <= 2)
