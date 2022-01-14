@@ -1,74 +1,84 @@
 extern crate timely;
 
-use timely::communication::message::RefOrMut;
-use timely::dataflow::Stream;
-use timely::Data;
-
 use std::collections::HashMap;
+
+use timely::communication::message::RefOrMut;
 use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
-use timely::dataflow::{InputHandle, ProbeHandle, Scope};
+use timely::dataflow::{InputHandle, ProbeHandle, Scope, Stream};
+use timely::Data;
+
+const WIDTH: u32 = 1800 * 3;
+const HEIGHT: u32 = 1200 * 3;
+const ITERATIONS: u32 = 400;
 
 fn main() {
-    const WIDTH: i32 = 0o6;
-    const HEIGHT: i32 = 9;
-    // let mut matrix = vec![vec![(0.0f64, 0.0f64, 0.0f64); WIDTH as usize]; HEIGHT as usize];
-
     timely::execute_from_args(std::env::args(), move |worker| {
         let mut input = InputHandle::new();
         let mut probe = ProbeHandle::new();
+        let index = worker.index();
 
         worker.dataflow(|scope| {
             let stream = scope.input_from(&mut input);
+
             let result = scope.iterative::<u32, _, _>(|subscope| {
                 let (loop_handle, loop_stream) = subscope.loop_variable(1);
 
-                let (goes_infinity, continuation) = stream
+                let (end, continuation) = stream
                     .enter(subscope)
                     .concat(&loop_stream)
-                    .map(|(c, z, pos, iter)| (c, z * z + c, pos, iter + 1))
-                    .branch(
-                        |_t,
-                         (_c, z, _pos, _iter): &(
-                            num::complex::Complex<f64>,
-                            num::complex::Complex<f64>,
-                            (i32, i32),
-                            i32,
-                        )| { z.norm_sqr() < 2.0 },
-                    );
+                    .exchange(|(_c, _z, (x, y), iter)| (*x + *y + *iter) as u64)
+                    .map(|((r, i), (zr, zi), pos, iter)| {
+                        let c = num::complex::Complex::new(r, i);
+                        let mut z0 = num::complex::Complex::new(zr, zi);
+                        let mut count = 0;
+                        for i in 0..ITERATIONS / 4 {
+                            z0 = z0 * z0 + c;
+                            count = i;
+                            if z0.norm_sqr() >= 4.0 {
+                                break;
+                            }
+                        }
+                        ((r, i), (z0.re, z0.im), pos, iter + count)
+                    })
+                    .branch(|_t, (_c, (zr, zi), _pos, iter)| {
+                        let z0 = num::complex::Complex::new(*zr, *zi);
+                        let result = z0.norm_sqr() < 4.0 && *iter < ITERATIONS;
+                        result
+                    });
 
-                let (last_iteration, continuation2) = continuation.branch_when(|t| t.inner < 40);
+                continuation.connect_loop(loop_handle);
 
-                continuation2.connect_loop(loop_handle);
-
-                let result = goes_infinity
-                    .concat(&last_iteration)
-                    .map(|(_c, _z, pos, iter)| (pos, iter))
-                    .leave();
+                let result = end.map(|(_c, _z, pos, iter)| (pos, iter + 1)).leave();
                 result
             });
 
             stream.probe_with(&mut probe);
 
             result
-                .accumulate_vec(Vec::new(), |vec, data| {
-                    for &x in data.iter() {
-                        vec.push(x);
-                    }
-                })
-                .inspect(|vec| {
-                    println!("vec: {:?}", vec);
+                .exchange(|((_x, _y), _iter)| 0)
+                .accumulate_matrix(
+                    vec![vec![(0f64, 0f64, 0f64); WIDTH as usize]; HEIGHT as usize],
+                    |matrix, data| {
+                        for &((x, y), iter) in data.iter() {
+                            matrix[y as usize][x as usize] = calc_color(iter, ITERATIONS);
+                        }
+                    },
+                )
+                .inspect(move |matrix| {
+                    print_ppm_header(WIDTH, HEIGHT);
+                    print_ppm_mandel(matrix);
                 });
         });
 
-        let z = num::complex::Complex::new(0.0, 0.0);
         input.advance_to(0);
         for round in 0..1 {
-            for x in 0..WIDTH {
+            if index == 0 {
                 for y in 0..HEIGHT {
-                    let (r, i) = normalize_to_plane(WIDTH, HEIGHT, x, y);
-                    let c = num::complex::Complex::new(r, i);
-                    input.send((c, z, (x, y), 0));
+                    for x in 0..WIDTH {
+                        let (r, i) = normalize_to_plane(WIDTH, HEIGHT, x, y);
+                        input.send(((r, i), (0.0, 0.0), (x, y), 0));
+                    }
                 }
             }
             input.advance_to(round + 1);
@@ -78,19 +88,16 @@ fn main() {
         }
     })
     .unwrap();
-
-    // print_ppm_header(WIDTH, HEIGHT);
-    // print_ppm_mandel(&mut matrix);
 }
 
-fn normalize_to_plane(width: i32, height: i32, x: i32, y: i32) -> (f64, f64) {
+fn normalize_to_plane(width: u32, height: u32, x: u32, y: u32) -> (f64, f64) {
     (
         3.0 / (width as f64) * (x as f64) - 2.0,
         2.0 / (height as f64) * (y as f64) - 1.0,
     )
 }
 
-fn calc_color(iter: i32, iterations: i32) -> (f64, f64, f64) {
+fn calc_color(iter: u32, iterations: u32) -> (f64, f64, f64) {
     if iter == iterations {
         return (0.0, 0.0, 0.0);
     }
@@ -114,8 +121,8 @@ fn calc_color(iter: i32, iterations: i32) -> (f64, f64, f64) {
     (red, green, blue)
 }
 
-fn to_256(n: f64) -> i32 {
-    ((n * 255.0).floor()) as i32
+fn to_256(n: f64) -> u32 {
+    ((n * 255.0).floor()) as u32
 }
 
 fn print_ppm_mandel(matrix: &Vec<Vec<(f64, f64, f64)>>) {
@@ -128,26 +135,26 @@ fn print_ppm_mandel(matrix: &Vec<Vec<(f64, f64, f64)>>) {
     }
 }
 
-fn print_ppm_header(width: i32, height: i32) {
+fn print_ppm_header(width: u32, height: u32) {
     println!("P3");
     println!("{} {}", width, height);
     println!("255");
 }
 
-pub trait AccumulateVec<G: Scope, D: Data> {
-    fn accumulate_vec<A: Data>(
+pub trait AccumulateMatrix<G: Scope, D: Data> {
+    fn accumulate_matrix<A: Data>(
         &self,
-        default: Vec<A>,
-        logic: impl Fn(&mut Vec<A>, RefOrMut<Vec<D>>) + 'static,
-    ) -> Stream<G, Vec<A>>;
+        default: Vec<Vec<A>>,
+        logic: impl Fn(&mut Vec<Vec<A>>, RefOrMut<Vec<D>>) + 'static,
+    ) -> Stream<G, Vec<Vec<A>>>;
 }
 
-impl<G: Scope, D: Data> AccumulateVec<G, D> for Stream<G, D> {
-    fn accumulate_vec<A: Data>(
+impl<G: Scope, D: Data> AccumulateMatrix<G, D> for Stream<G, D> {
+    fn accumulate_matrix<A: Data>(
         &self,
-        default: Vec<A>,
-        logic: impl Fn(&mut Vec<A>, RefOrMut<Vec<D>>) + 'static,
-    ) -> Stream<G, Vec<A>> {
+        default: Vec<Vec<A>>,
+        logic: impl Fn(&mut Vec<Vec<A>>, RefOrMut<Vec<D>>) + 'static,
+    ) -> Stream<G, Vec<Vec<A>>> {
         let mut accums = HashMap::new();
         self.unary_notify(
             Pipeline,
