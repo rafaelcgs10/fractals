@@ -1,6 +1,6 @@
-const WINDOW_WIDTH: i32 = 1800;
-const WINDOW_HEIGHT: i32 = 1200;
-const ITERATIONS: i32 = 200;
+const WINDOW_WIDTH: i32 = 1800 * 3;
+const WINDOW_HEIGHT: i32 = 1200 * 3;
+const ITERATIONS: i32 = 400;
 
 fn main() {
     let matrix = points(WINDOW_WIDTH, WINDOW_HEIGHT);
