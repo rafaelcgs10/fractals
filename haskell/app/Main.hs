@@ -4,9 +4,9 @@ import Data.Int ()
 import Data.List ( transpose )
 import GHC.Real (Integral(toInteger))
 
-iterations = 200
-windowWidth = 1800
-windowHeigh = 1200
+iterations = 400
+windowWidth = 1800 * 3
+windowHeigh = 1200 * 3
 
 x // y = fromIntegral x / fromIntegral y
 x */* y = x * fromIntegral y
