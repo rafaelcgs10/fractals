@@ -1,12 +1,7 @@
 extern crate timely;
 
-use std::collections::HashMap;
-
-use timely::communication::message::RefOrMut;
-use timely::dataflow::channels::pact::Pipeline;
 use timely::dataflow::operators::*;
-use timely::dataflow::{InputHandle, ProbeHandle, Scope, Stream};
-use timely::Data;
+use timely::dataflow::{InputHandle, ProbeHandle, Scope};
 
 const WIDTH: u32 = 1800 * 3;
 const HEIGHT: u32 = 1200 * 3;
@@ -56,8 +51,8 @@ fn main() {
             stream.probe_with(&mut probe);
 
             result
-                .exchange(|((_x, _y), _iter)| 0)
-                .accumulate_matrix(
+                .exchange(|((_x, _y), _iter)| 0) // send worker 0
+                .accumulate(
                     vec![vec![(0f64, 0f64, 0f64); WIDTH as usize]; HEIGHT as usize],
                     |matrix, data| {
                         for &((x, y), iter) in data.iter() {
@@ -139,44 +134,4 @@ fn print_ppm_header(width: u32, height: u32) {
     println!("P3");
     println!("{} {}", width, height);
     println!("255");
-}
-
-pub trait AccumulateMatrix<G: Scope, D: Data> {
-    fn accumulate_matrix<A: Data>(
-        &self,
-        default: Vec<Vec<A>>,
-        logic: impl Fn(&mut Vec<Vec<A>>, RefOrMut<Vec<D>>) + 'static,
-    ) -> Stream<G, Vec<Vec<A>>>;
-}
-
-impl<G: Scope, D: Data> AccumulateMatrix<G, D> for Stream<G, D> {
-    fn accumulate_matrix<A: Data>(
-        &self,
-        default: Vec<Vec<A>>,
-        logic: impl Fn(&mut Vec<Vec<A>>, RefOrMut<Vec<D>>) + 'static,
-    ) -> Stream<G, Vec<Vec<A>>> {
-        let mut accums = HashMap::new();
-        self.unary_notify(
-            Pipeline,
-            "AccumulateVec",
-            vec![],
-            move |input, output, notificator| {
-                input.for_each(|time, data| {
-                    logic(
-                        &mut accums
-                            .entry(time.time().clone())
-                            .or_insert_with(|| default.clone()),
-                        data,
-                    );
-                    notificator.notify_at(time.retain());
-                });
-
-                notificator.for_each(|time, _, _| {
-                    if let Some(accum) = accums.remove(&time) {
-                        output.session(&time).give(accum);
-                    }
-                });
-            },
-        )
-    }
 }
